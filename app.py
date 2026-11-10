@@ -141,17 +141,59 @@ if st.button("Generate TV Schedule", type="primary"):
             hide_index=True
         )
 
-        # Fitness progress
-        st.header("Fitness Progress")
+        
+# Fitness progress
+st.header("Fitness Progress Across Generations")
 
-        fitness_df = pd.DataFrame({
-            "Generation": range(len(fitness_history)),
-            "Best Fitness": fitness_history
-        })
+import altair as alt
 
-        st.line_chart(
-            fitness_df.set_index("Generation")
-        )
+fitness_df = pd.DataFrame({
+    "Generation": range(len(fitness_history)),
+    "Best Fitness": fitness_history
+})
+
+# Set appropriate axis ranges
+min_fitness = max(0, min(fitness_history) - 0.5)
+max_fitness = max(fitness_history) + 0.5
+
+# Create fitness chart
+fitness_chart = (
+    alt.Chart(fitness_df)
+    .mark_line(point=True, strokeWidth=2)
+    .encode(
+        x=alt.X(
+            "Generation:Q",
+            title="Generation",
+            scale=alt.Scale(
+                domain=[0, len(fitness_history) - 1]
+            ),
+            axis=alt.Axis(values=[0, 20, 40, 60, 80, 100])
+        ),
+        y=alt.Y(
+            "Best Fitness:Q",
+            title="Best Fitness Score",
+            scale=alt.Scale(
+                domain=[min_fitness, max_fitness]
+            )
+        ),
+        tooltip=[
+            alt.Tooltip("Generation:Q", title="Generation"),
+            alt.Tooltip(
+                "Best Fitness:Q",
+                title="Fitness",
+                format=".2f"
+            )
+        ]
+    )
+    .properties(height=350)
+    .interactive()
+)
+
+st.altair_chart(
+    fitness_chart,
+    width="stretch"
+)
+
 
         # Schedule validation
         st.subheader("Schedule Validation")
