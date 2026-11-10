@@ -88,14 +88,17 @@ if st.button("Generate TV Schedule", type="primary"):
 
         with st.spinner("Running Genetic Algorithm..."):
 
-            best_schedule, fitness_history, ratings = genetic_algorithm(
-                file_path=str(CSV_PATH),
-                generations=100,
-                population_size=50,
-                crossover_rate=crossover_rate,
-                mutation_rate=mutation_rate,
-                elitism_size=2
-            )
+            
+best_schedule, fitness_history, ratings = genetic_algorithm(
+    file_path=str(CSV_PATH),
+    generations=100,
+    population_size=50,
+    crossover_rate=crossover_rate,
+    mutation_rate=mutation_rate,
+    elitism_size=2,
+    seed=42
+)
+
 
             # Prepare schedule table
             schedule_data = []
