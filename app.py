@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -9,11 +8,11 @@ from genetic_algorithm import genetic_algorithm
 # Page configuration
 st.set_page_config(
     page_title="TV Scheduling Using Genetic Algorithm",
-    page_icon="📺",
+    page_icon="\U0001F4FA",
     layout="wide"
 )
 
-st.title("📺 TV Scheduling Using Genetic Algorithm")
+st.title("\U0001F4FA TV Scheduling Using Genetic Algorithm")
 
 st.write(
     "This application generates an optimized TV program "
@@ -88,7 +87,6 @@ if st.button("Generate TV Schedule", type="primary"):
 
     else:
         with st.spinner("Running Genetic Algorithm..."):
-
             best_schedule, fitness_history, ratings = genetic_algorithm(
                 file_path=str(CSV_PATH),
                 generations=100,
@@ -101,7 +99,6 @@ if st.button("Generate TV Schedule", type="primary"):
 
             # Prepare schedule data
             schedule_data = []
-
             for index, program in enumerate(best_schedule):
                 schedule_data.append({
                     "Time Slot": f"{index + 6:02d}:00",
@@ -163,7 +160,6 @@ if st.button("Generate TV Schedule", type="primary"):
             0,
             min(fitness_history) - 0.5
         )
-
         max_fitness = max(fitness_history) + 0.5
         last_generation = len(fitness_history) - 1
 
