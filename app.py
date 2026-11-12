@@ -1,8 +1,3 @@
-Replace the entire contents of `app.py` on GitHub with the code below, then click **Commit changes** and commit directly to `main`. Your Streamlit app should update automatically.
-
-This version keeps the same algorithm settings and adds a clearer layout, improved typography, result cards, and a cleaner fitness chart. It also keeps the latest results visible when you adjust the sliders, while reminding you to generate a new schedule.
-
-```python
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -463,4 +458,3 @@ else:
             "Validation failed: check the number of time slots "
             "and whether all programmes are included."
         )
-```
