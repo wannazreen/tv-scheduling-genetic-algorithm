@@ -6,9 +6,9 @@ from pathlib import Path
 from genetic_algorithm import genetic_algorithm
 
 
-# --------------------------------------------------
+# ==================================================
 # PAGE CONFIGURATION
-# --------------------------------------------------
+# ==================================================
 
 st.set_page_config(
     page_title="TV Scheduling Dashboard",
@@ -17,9 +17,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --------------------------------------------------
+# ==================================================
 # STYLING
-# --------------------------------------------------
+# ==================================================
 
 st.markdown(
     """
@@ -34,16 +34,12 @@ st.markdown(
             letter-spacing: -0.025em;
         }
 
-        h2 {
-            margin-top: 0.4rem;
-        }
-
         .hero {
             padding: 2rem 2.2rem;
             border-radius: 18px;
             background: linear-gradient(120deg, #183153, #254e77);
             color: #ffffff;
-            margin-bottom: 1.8rem;
+            margin-bottom: 1.6rem;
         }
 
         .hero-label {
@@ -80,16 +76,11 @@ st.markdown(
             font-weight: 700;
         }
 
-        div.stButton > button {
-            border-radius: 9px;
-            font-weight: 600;
-            min-height: 46px;
-        }
-
+        div.stButton > button,
         div.stDownloadButton > button {
             border-radius: 9px;
             font-weight: 600;
-            min-height: 42px;
+            min-height: 44px;
         }
 
         @media (max-width: 600px) {
@@ -106,9 +97,175 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --------------------------------------------------
+
+# ==================================================
+# CONSTANTS
+# ==================================================
+
+GENERATIONS = 100
+POPULATION_SIZE = 50
+ELITISM_SIZE = 2
+RANDOM_SEED = 42
+MAX_TRIALS = 3
+
+CSV_PATH = (
+    Path(__file__).resolve().parent
+    / "program_ratings_modified.csv"
+)
+
+
+# ==================================================
+# SESSION STATE
+# ==================================================
+
+if "current_result" not in st.session_state:
+    st.session_state.current_result = None
+
+if "saved_trials" not in st.session_state:
+    st.session_state.saved_trials = []
+
+
+# ==================================================
+# HELPER FUNCTIONS
+# ==================================================
+
+def readable_program_name(program):
+    """Make programme names easier to read."""
+    return program.replace("_", " ").title()
+
+
+def create_schedule_dataframe(schedule, ratings):
+    """Create the schedule table from the algorithm result."""
+    rows = []
+
+    for index, program in enumerate(schedule):
+        rows.append({
+            "Time Slot": f"{index + 6:02d}:00",
+            "Programme": readable_program_name(program),
+            "Rating": ratings[program][index]
+        })
+
+    return pd.DataFrame(rows)
+
+
+def validate_schedule(schedule, programs):
+    """Check the requirements implemented by this app."""
+    expected_programs = set(programs)
+
+    return (
+        len(schedule) == 18
+        and len(expected_programs) == 10
+        and set(schedule) == expected_programs
+    )
+
+
+def fitness_chart(history):
+    """Build a chart for one trial's fitness history."""
+    fitness_df = pd.DataFrame({
+        "Generation": range(len(history)),
+        "Best Fitness": history
+    })
+
+    minimum = max(0, min(history) - 0.5)
+    maximum = max(history) + 0.5
+
+    return (
+        alt.Chart(fitness_df)
+        .mark_line(
+            color="#4A9EEB",
+            strokeWidth=3,
+            point=alt.OverlayMarkDef(
+                filled=True,
+                size=25
+            )
+        )
+        .encode(
+            x=alt.X(
+                "Generation:Q",
+                title="Generation",
+                scale=alt.Scale(
+                    domain=[0, len(history) - 1],
+                    nice=False
+                ),
+                axis=alt.Axis(
+                    values=[0, 20, 40, 60, 80, 100]
+                )
+            ),
+            y=alt.Y(
+                "Best Fitness:Q",
+                title="Best fitness score",
+                scale=alt.Scale(
+                    domain=[minimum, maximum],
+                    zero=False,
+                    nice=False
+                )
+            ),
+            tooltip=[
+                alt.Tooltip(
+                    "Generation:Q",
+                    title="Generation"
+                ),
+                alt.Tooltip(
+                    "Best Fitness:Q",
+                    title="Best fitness",
+                    format=".2f"
+                )
+            ]
+        )
+        .properties(height=300)
+    )
+
+
+def display_schedule_table(schedule_df):
+    """Display all 18 rows in a readable table."""
+    st.dataframe(
+        schedule_df,
+        width="stretch",
+        hide_index=True,
+        height=680,
+        column_config={
+            "Time Slot": st.column_config.TextColumn(
+                "Time slot"
+            ),
+            "Programme": st.column_config.TextColumn(
+                "Programme"
+            ),
+            "Rating": st.column_config.NumberColumn(
+                "Rating",
+                format="%.2f"
+            )
+        }
+    )
+
+
+def display_validation(result):
+    """Show schedule validation results."""
+    schedule = result["schedule"]
+    programs = result["programs"]
+
+    total_slots = len(schedule)
+    unique_programs = len(set(schedule))
+
+    col1, col2 = st.columns(2)
+
+    col1.metric("Time slots", f"{total_slots} / 18")
+    col2.metric("Unique programmes", f"{unique_programs} / 10")
+
+    if validate_schedule(schedule, programs):
+        st.success(
+            "Validation passed: the schedule contains 18 time slots "
+            "and includes all 10 programmes."
+        )
+    else:
+        st.error(
+            "Validation failed: check the time slots and "
+            "programme coverage."
+        )
+
+
+# ==================================================
 # HEADER
-# --------------------------------------------------
+# ==================================================
 
 st.markdown(
     """
@@ -116,21 +273,39 @@ st.markdown(
         <div class="hero-label">Evolutionary Computing</div>
         <div class="hero-title">TV Scheduling Dashboard</div>
         <div class="hero-description">
-            Explore how crossover and mutation rates affect a TV programme
-            schedule generated using a genetic algorithm.
+            Generate TV schedules with a genetic algorithm,
+            explore the results, and compare up to three trials.
         </div>
     </div>
     """,
     unsafe_allow_html=True
 )
 
-# --------------------------------------------------
-# PARAMETERS
-# --------------------------------------------------
+with st.expander("How to use this dashboard"):
+    st.markdown(
+        """
+        1. Choose a **crossover rate** and a **mutation rate**.
+        2. Click **Generate TV schedule**.
+        3. Review the schedule, fitness chart and validation.
+        4. Click **Save current result as a trial**.
+        5. Change the rates and repeat to compare up to three trials.
+
+        **Fitness** is the total rating of the programmes assigned
+        to the 18 time slots. A higher score is better for this model.
+
+        Saved trials are kept for the current browser session.
+        Download the CSV files if you want to keep the results.
+        """
+    )
+
+
+# ==================================================
+# 1. PARAMETERS
+# ==================================================
 
 st.header("1. Set your parameters")
 st.caption(
-    "Choose the rates below, then generate a schedule to see the results."
+    "Select the rates, then generate a schedule."
 )
 
 with st.container(border=True):
@@ -148,7 +323,11 @@ with st.container(border=True):
             max_value=0.95,
             value=0.80,
             step=0.01,
-            format="%.2f"
+            format="%.2f",
+            help=(
+                "A higher value gives the algorithm more opportunities "
+                "to combine parts of two parent schedules."
+            )
         )
 
     with mutation_col:
@@ -168,7 +347,9 @@ with st.container(border=True):
 
         if mutation_mode == "Default (0.20)":
             mutation_rate = 0.20
-            st.caption("The assignment specifies 0.20 as the default.")
+            st.caption(
+                "The assignment specifies 0.20 as the default."
+            )
         else:
             mutation_rate = st.slider(
                 "Mutation rate (MUT_R)",
@@ -176,18 +357,23 @@ with st.container(border=True):
                 max_value=0.05,
                 value=0.02,
                 step=0.01,
-                format="%.2f"
+                format="%.2f",
+                help=(
+                    "Mutation introduces a change into an offspring "
+                    "schedule to explore another possible solution."
+                )
             )
 
     st.divider()
 
     st.markdown("**Fixed experiment settings**")
+
     setting1, setting2, setting3, setting4 = st.columns(4)
 
-    setting1.metric("Generations", "100")
-    setting2.metric("Population", "50")
-    setting3.metric("Elitism", "2")
-    setting4.metric("Random seed", "42")
+    setting1.metric("Generations", str(GENERATIONS))
+    setting2.metric("Population", str(POPULATION_SIZE))
+    setting3.metric("Elitism", str(ELITISM_SIZE))
+    setting4.metric("Random seed", str(RANDOM_SEED))
 
     st.write("")
 
@@ -197,87 +383,75 @@ with st.container(border=True):
         width="stretch"
     )
 
-# --------------------------------------------------
-# RUN THE GENETIC ALGORITHM
-# --------------------------------------------------
 
-CSV_PATH = (
-    Path(__file__).resolve().parent
-    / "program_ratings_modified.csv"
-)
+# ==================================================
+# RUN THE GENETIC ALGORITHM
+# ==================================================
 
 if generate:
     if not CSV_PATH.exists():
         st.error(
             "The modified ratings file was not found. "
-            "Check that program_ratings_modified.csv is in the "
-            "same GitHub folder as app.py."
+            "Check that program_ratings_modified.csv is in "
+            "the same GitHub folder as app.py."
         )
     else:
         try:
             with st.spinner("Generating your schedule..."):
-                best_schedule, fitness_history, ratings = (
-                    genetic_algorithm(
-                        file_path=str(CSV_PATH),
-                        generations=100,
-                        population_size=50,
-                        crossover_rate=crossover_rate,
-                        mutation_rate=mutation_rate,
-                        elitism_size=2,
-                        seed=42
-                    )
+                schedule, history, ratings = genetic_algorithm(
+                    file_path=str(CSV_PATH),
+                    generations=GENERATIONS,
+                    population_size=POPULATION_SIZE,
+                    crossover_rate=crossover_rate,
+                    mutation_rate=mutation_rate,
+                    elitism_size=ELITISM_SIZE,
+                    seed=RANDOM_SEED
                 )
 
-                schedule_data = []
+                schedule_df = create_schedule_dataframe(
+                    schedule,
+                    ratings
+                )
 
-                for index, program in enumerate(best_schedule):
-                    schedule_data.append({
-                        "Time Slot": f"{index + 6:02d}:00",
-                        "Program": program,
-                        "Rating": ratings[program][index]
-                    })
-
-                schedule_df = pd.DataFrame(schedule_data)
-
-                # Save the result so it stays visible when controls change.
-                st.session_state["schedule_result"] = {
-                    "schedule": best_schedule,
+                st.session_state.current_result = {
+                    "schedule": schedule,
                     "schedule_df": schedule_df,
-                    "fitness_history": fitness_history,
+                    "history": history,
                     "programs": list(ratings.keys()),
                     "crossover_rate": crossover_rate,
                     "mutation_rate": mutation_rate
                 }
 
+            st.success("Schedule generated successfully.")
+
         except Exception as error:
             st.error(f"Unable to generate the schedule: {error}")
 
-# --------------------------------------------------
-# DISPLAY RESULTS
-# --------------------------------------------------
 
-result = st.session_state.get("schedule_result")
+# ==================================================
+# 2. CURRENT RESULT
+# ==================================================
+
+st.write("")
+st.header("2. Review your current result")
+
+result = st.session_state.current_result
 
 if result is None:
     st.info(
-        "Your results will appear here after you generate a schedule."
+        "Choose your parameters and generate a schedule "
+        "to see the results here."
     )
+
 else:
-    schedule = result["schedule"]
-    schedule_df = result["schedule_df"]
-    fitness_history = result["fitness_history"]
-
-    initial_fitness = fitness_history[0]
-    final_fitness = fitness_history[-1]
+    initial_fitness = result["history"][0]
+    final_fitness = result["history"][-1]
     improvement = final_fitness - initial_fitness
-    average_rating = final_fitness / len(schedule)
-
-    st.write("")
-    st.header("2. Review your results")
+    average_rating = final_fitness / len(result["schedule"])
 
     st.caption(
-        f"Results shown for CO_R = {result['crossover_rate']:.2f} "
-        f"and MUT_R = {result['mutation_rate']:.2f}."
+        f"Current result: CO_R = {result['crossover_rate']:.2f} "
+        f"| MUT_R = {result['mutation_rate']:.2f}"
     )
 
     if (
@@ -285,8 +459,9 @@ else:
         or mutation_rate != result["mutation_rate"]
     ):
         st.info(
-            "Your selected parameters have changed. "
-            "Click Generate TV schedule to run them."
+            "The selected parameters have changed. The result below "
+            "still belongs to the previous settings. Generate a new "
+            "schedule to use the selected rates."
         )
 
     metric1, metric2, metric3, metric4 = st.columns(4)
@@ -303,7 +478,7 @@ else:
 
     metric3.metric(
         "Fitness improvement",
-        f"+{improvement:.2f}"
+        f"{improvement:+.2f}"
     )
 
     metric4.metric(
@@ -313,99 +488,263 @@ else:
 
     st.write("")
 
-    # --------------------------------------------------
-    # SCHEDULE TABLE
-    # --------------------------------------------------
+    # Save the current result as a trial.
+    save_col, count_col = st.columns([2, 1])
 
+    with save_col:
+        save_trial = st.button(
+            "Save current result as a trial",
+            disabled=(
+                len(st.session_state.saved_trials) >= MAX_TRIALS
+            ),
+            width="stretch"
+        )
+
+    with count_col:
+        st.caption(
+            f"Saved trials: "
+            f"{len(st.session_state.saved_trials)} / {MAX_TRIALS}"
+        )
+
+    if save_trial:
+        st.session_state.saved_trials.append({
+            "schedule": list(result["schedule"]),
+            "schedule_df": result["schedule_df"].copy(),
+            "history": list(result["history"]),
+            "programs": list(result["programs"]),
+            "crossover_rate": result["crossover_rate"],
+            "mutation_rate": result["mutation_rate"]
+        })
+
+        st.rerun()
+
+    if len(st.session_state.saved_trials) >= MAX_TRIALS:
+        st.caption(
+            "You have saved three trials. Clear the saved trials "
+            "below to start a new comparison."
+        )
+
+    st.write("")
     st.subheader("Optimized TV schedule")
     st.caption(
-        "The rating shows the value assigned to each programme "
+        "Each rating is the value assigned to the programme "
         "in its selected time slot."
     )
 
-    st.dataframe(
-        schedule_df,
-        width="stretch",
-        hide_index=True,
-        height=500,
-        column_config={
-            "Time Slot": st.column_config.TextColumn(
-                "Time slot"
-            ),
-            "Program": st.column_config.TextColumn(
-                "Programme"
-            ),
-            "Rating": st.column_config.NumberColumn(
-                "Rating",
-                format="%.2f"
-            )
-        }
-    )
+    display_schedule_table(result["schedule_df"])
 
     st.download_button(
-        "Download schedule as CSV",
-        data=schedule_df.to_csv(index=False).encode("utf-8"),
-        file_name="generated_tv_schedule.csv",
+        "Download current schedule as CSV",
+        data=result["schedule_df"].to_csv(
+            index=False
+        ).encode("utf-8"),
+        file_name="current_tv_schedule.csv",
         mime="text/csv"
     )
 
     st.write("")
-
-    # --------------------------------------------------
-    # FITNESS CHART
-    # --------------------------------------------------
-
     st.subheader("Fitness progress")
     st.caption(
         "Best fitness recorded from the initial population "
         "through generation 100."
     )
 
-    fitness_df = pd.DataFrame({
-        "Generation": range(len(fitness_history)),
-        "Best Fitness": fitness_history
-    })
+    st.altair_chart(
+        fitness_chart(result["history"]),
+        width="stretch"
+    )
 
-    min_fitness = max(0, min(fitness_history) - 0.5)
-    max_fitness = max(fitness_history) + 0.5
-    last_generation = len(fitness_history) - 1
+    st.write("")
+    st.subheader("Schedule validation")
+    display_validation(result)
 
-    fitness_chart = (
-        alt.Chart(fitness_df)
-        .mark_line(
-            color="#4A9EEB",
-            strokeWidth=3,
-            point=alt.OverlayMarkDef(
-                filled=True,
-                size=25
+
+# ==================================================
+# 3. COMPARE SAVED TRIALS
+# ==================================================
+
+st.write("")
+st.header("3. Compare saved trials")
+
+trials = st.session_state.saved_trials
+
+st.caption(
+    "Save up to three results to compare parameter combinations. "
+    "Trials remain available during your current browser session."
+)
+
+if not trials:
+    st.info(
+        "No trials saved yet. Generate a schedule and click "
+        "Save current result as a trial."
+    )
+
+else:
+    summary_rows = []
+
+    for index, trial in enumerate(trials, start=1):
+        initial = trial["history"][0]
+        final = trial["history"][-1]
+
+        summary_rows.append({
+            "Trial": f"Trial {index}",
+            "CO_R": trial["crossover_rate"],
+            "MUT_R": trial["mutation_rate"],
+            "Initial Fitness": initial,
+            "Final Fitness": final,
+            "Improvement": final - initial,
+            "Average Rating": final / len(trial["schedule"]),
+            "Validation": (
+                "Passed"
+                if validate_schedule(
+                    trial["schedule"],
+                    trial["programs"]
+                )
+                else "Failed"
             )
+        })
+
+    summary_df = pd.DataFrame(summary_rows)
+
+    st.subheader("Trial summary")
+
+    st.dataframe(
+        summary_df,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "CO_R": st.column_config.NumberColumn(
+                "CO_R",
+                format="%.2f"
+            ),
+            "MUT_R": st.column_config.NumberColumn(
+                "MUT_R",
+                format="%.2f"
+            ),
+            "Initial Fitness": st.column_config.NumberColumn(
+                "Initial fitness",
+                format="%.2f"
+            ),
+            "Final Fitness": st.column_config.NumberColumn(
+                "Final fitness",
+                format="%.2f"
+            ),
+            "Improvement": st.column_config.NumberColumn(
+                "Improvement",
+                format="%.2f"
+            ),
+            "Average Rating": st.column_config.NumberColumn(
+                "Average rating",
+                format="%.3f"
+            )
+        }
+    )
+
+    best_fitness = summary_df["Final Fitness"].max()
+
+    best_trials = summary_df.loc[
+        summary_df["Final Fitness"].round(8)
+        == round(best_fitness, 8),
+        "Trial"
+    ].tolist()
+
+    if len(best_trials) == 1:
+        st.success(
+            f"Highest saved fitness: {best_trials[0]} "
+            f"with {best_fitness:.2f}."
+        )
+    else:
+        st.success(
+            f"Highest saved fitness: {best_fitness:.2f}. "
+            f"Tied trials: {', '.join(best_trials)}."
+        )
+
+    st.download_button(
+        "Download trial comparison as CSV",
+        data=summary_df.to_csv(index=False).encode("utf-8"),
+        file_name="trial_comparison.csv",
+        mime="text/csv"
+    )
+
+    st.write("")
+    st.subheader("Compare final fitness")
+    st.caption(
+        "Higher fitness means a higher total rating "
+        "under the current scheduling model."
+    )
+
+    comparison_chart = (
+        alt.Chart(summary_df)
+        .mark_bar(
+            color="#4A9EEB",
+            cornerRadiusTopLeft=5,
+            cornerRadiusTopRight=5
         )
         .encode(
             x=alt.X(
-                "Generation:Q",
-                title="Generation",
-                scale=alt.Scale(
-                    domain=[0, last_generation],
-                    nice=False
-                ),
-                axis=alt.Axis(
-                    values=[0, 20, 40, 60, 80, 100]
+                "Trial:N",
+                title="Trial",
+                sort=None
+            ),
+            y=alt.Y(
+                "Final Fitness:Q",
+                title="Final fitness",
+                scale=alt.Scale(zero=True)
+            ),
+            tooltip=[
+                alt.Tooltip("Trial:N"),
+                alt.Tooltip("CO_R:Q", format=".2f"),
+                alt.Tooltip("MUT_R:Q", format=".2f"),
+                alt.Tooltip(
+                    "Final Fitness:Q",
+                    title="Final fitness",
+                    format=".2f"
                 )
+            ]
+        )
+        .properties(height=280)
+    )
+
+    st.altair_chart(
+        comparison_chart,
+        width="stretch"
+    )
+
+    st.write("")
+    st.subheader("Compare fitness progress")
+
+    history_rows = []
+
+    for index, trial in enumerate(trials, start=1):
+        for generation, fitness in enumerate(trial["history"]):
+            history_rows.append({
+                "Trial": f"Trial {index}",
+                "Generation": generation,
+                "Best Fitness": fitness
+            })
+
+    history_df = pd.DataFrame(history_rows)
+
+    progress_chart = (
+        alt.Chart(history_df)
+        .mark_line(strokeWidth=2.5)
+        .encode(
+            x=alt.X(
+                "Generation:Q",
+                title="Generation"
             ),
             y=alt.Y(
                 "Best Fitness:Q",
-                title="Best fitness score",
-                scale=alt.Scale(
-                    domain=[min_fitness, max_fitness],
-                    zero=False,
-                    nice=False
-                )
+                title="Best fitness",
+                scale=alt.Scale(zero=False)
+            ),
+            color=alt.Color(
+                "Trial:N",
+                title="Trial"
             ),
             tooltip=[
-                alt.Tooltip(
-                    "Generation:Q",
-                    title="Generation"
-                ),
+                alt.Tooltip("Trial:N"),
+                alt.Tooltip("Generation:Q"),
                 alt.Tooltip(
                     "Best Fitness:Q",
                     title="Best fitness",
@@ -413,48 +752,48 @@ else:
                 )
             ]
         )
-        .properties(height=320)
+        .properties(height=300)
     )
 
-    st.altair_chart(fitness_chart, width="stretch")
-
-    # --------------------------------------------------
-    # SCHEDULE VALIDATION
-    # --------------------------------------------------
-
-    st.subheader("Schedule validation")
-
-    total_slots = len(schedule)
-    unique_programs = len(set(schedule))
-    expected_programs = set(result["programs"])
-
-    valid_schedule = (
-        total_slots == 18
-        and set(schedule) == expected_programs
-        and len(expected_programs) == 10
-    )
-
-    validation_col1, validation_col2 = st.columns(2)
-
-    validation_col1.metric(
-        "Time slots",
-        f"{total_slots} / 18"
-    )
-
-    validation_col2.metric(
-        "Unique programmes",
-        f"{unique_programs} / 10"
+    st.altair_chart(
+        progress_chart,
+        width="stretch"
     )
 
     st.write("")
+    st.subheader("View a saved schedule")
 
-    if valid_schedule:
-        st.success(
-            "Validation passed: the schedule has 18 time slots "
-            "and includes all 10 programmes."
-        )
-    else:
-        st.error(
-            "Validation failed: check the number of time slots "
-            "and whether all programmes are included."
-        )
+    selected_label = st.selectbox(
+        "Choose a trial",
+        options=[
+            f"Trial {index}"
+            for index in range(1, len(trials) + 1)
+        ]
+    )
+
+    selected_index = int(selected_label.split()[-1]) - 1
+    selected_trial = trials[selected_index]
+
+    st.caption(
+        f"{selected_label}: "
+        f"CO_R = {selected_trial['crossover_rate']:.2f} "
+        f"| MUT_R = {selected_trial['mutation_rate']:.2f}"
+    )
+
+    display_schedule_table(selected_trial["schedule_df"])
+
+    st.download_button(
+        f"Download {selected_label} schedule as CSV",
+        data=selected_trial["schedule_df"].to_csv(
+            index=False
+        ).encode("utf-8"),
+        file_name=f"trial_{selected_index + 1}_schedule.csv",
+        mime="text/csv"
+    )
+
+    st.write("")
+    st.subheader("Start a new comparison")
+
+    if st.button("Clear all saved trials"):
+        st.session_state.saved_trials = []
+        st.rerun()
